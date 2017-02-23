@@ -38,6 +38,10 @@ hosts_data = {
 
 version_data = {
     "jpol":  {
+        "G0_mb-inrpc": {
+            "version": "v1.6.16",
+            "build": 47,
+        },
         "G1_node-api": {
             "version": "v1.0.0",
             "build": 2,
@@ -83,105 +87,115 @@ version_data = {
 
 inventory_data =  {
     "jpol": {
-                "G1_node-api": {
-                    "hosts": hosts_data["jpol"]["G1_node-api"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "node-api",
-                             "version": version_data["jpol"]["G1_node-api"]["version"],
-                             "build": version_data["jpol"]["G1_node-api"]["build"],
-                             }
-                },
-                "G2_node-api": {
-                    "hosts": hosts_data["jpol"]["G2_node-api"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "node-api",
-                             "version": version_data["jpol"]["G2_node-api"]["version"],
-                             "build": version_data["jpol"]["G2_node-api"]["build"],
-                             }
-                },
-                "G1_mb-inrpc": {
-                    "hosts": hosts_data["jpol"]["G1_mb-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "mb-inrpc",
-                             "version": version_data["jpol"]["G1_mb-inrpc"]["version"],
-                             "build": version_data["jpol"]["G1_mb-inrpc"]["build"],
-                             }
-                },
-                "G2_mb-inrpc": {
-                    "hosts": hosts_data["jpol"]["G2_mb-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "mb-inrpc",
-                             "version": version_data["jpol"]["G2_mb-inrpc"]["version"],
-                             "build": version_data["jpol"]["G2_mb-inrpc"]["build"],
-                             }
-                },
-                "G1_planner-inrpc": {
-                    "hosts": hosts_data["jpol"]["G1_planner-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "planner-inrpc",
-                             "version": version_data["jpol"]["G1_planner-inrpc"]["version"],
-                             "build": version_data["jpol"]["G1_planner-inrpc"]["build"],
-                             }
-                },
-                "G2_planner-inrpc": {
-                    "hosts": hosts_data["jpol"]["G2_planner-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "planner-inrpc",
-                             "version": version_data["jpol"]["G2_planner-inrpc"]["version"],
-                             "build": version_data["jpol"]["G2_planner-inrpc"]["build"],
-                             }
-                },
-                "G1_msg2-inrpc": {
-                    "hosts": hosts_data["jpol"]["G1_msg2-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "msg2-inrpc",
-                             "version": version_data["jpol"]["G1_msg2-inrpc"]["version"],
-                             "build": version_data["jpol"]["G1_msg2-inrpc"]["build"],
-                             }
-                },
-                "G2_msg2-inrpc": {
-                    "hosts": hosts_data["jpol"]["G2_msg2-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "msg2-inrpc",
-                             "version": version_data["jpol"]["G2_msg2-inrpc"]["version"],
-                             "build": version_data["jpol"]["G2_msg2-inrpc"]["build"],
-                             }
-                },
-                "G1_timer-inrpc": {
-                    "hosts": hosts_data["jpol"]["G1_timer-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "timer-inrpc",
-                             "version": version_data["jpol"]["G1_timer-inrpc"]["version"],
-                             "build": version_data["jpol"]["G1_timer-inrpc"]["build"],
-                             }
-                },
-                "G2_timer-inrpc": {
-                    "hosts": hosts_data["jpol"]["G2_timer-inrpc"],
-                    "vars": {
-                             "env":"test",
-                             "project":"jpol",
-                             "module": "timer-inrpc",
-                             "version": version_data["jpol"]["G2_timer-inrpc"]["version"],
-                             "build": version_data["jpol"]["G2_timer-inrpc"]["build"],
-                             }
-                },
+                "G0_mb-inrpc": {
+                     "hosts": hosts_data["jpol"]["G0_mb-inrpc"],
+                     "vars": {
+                              "env":"test",
+                              "project":"jpol",
+                              "module": "mb-inrpc",
+                              "version": version_data["jpol"]["G0_mb-inrpc"]["version"],
+                              "build": version_data["jpol"]["G0_mb-inrpc"]["build"],
+                              }
+                 },
+            #     "G1_node-api": {
+            #         "hosts": hosts_data["jpol"]["G1_node-api"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "node-api",
+            #                  "version": version_data["jpol"]["G1_node-api"]["version"],
+            #                  "build": version_data["jpol"]["G1_node-api"]["build"],
+            #                  }
+            #     },
+            #     "G2_node-api": {
+            #         "hosts": hosts_data["jpol"]["G2_node-api"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "node-api",
+            #                  "version": version_data["jpol"]["G2_node-api"]["version"],
+            #                  "build": version_data["jpol"]["G2_node-api"]["build"],
+            #                  }
+            #     },
+            #     "G1_mb-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G1_mb-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "mb-inrpc",
+            #                  "version": version_data["jpol"]["G1_mb-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G1_mb-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G2_mb-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G2_mb-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "mb-inrpc",
+            #                  "version": version_data["jpol"]["G2_mb-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G2_mb-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G1_planner-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G1_planner-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "planner-inrpc",
+            #                  "version": version_data["jpol"]["G1_planner-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G1_planner-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G2_planner-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G2_planner-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "planner-inrpc",
+            #                  "version": version_data["jpol"]["G2_planner-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G2_planner-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G1_msg2-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G1_msg2-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "msg2-inrpc",
+            #                  "version": version_data["jpol"]["G1_msg2-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G1_msg2-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G2_msg2-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G2_msg2-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "msg2-inrpc",
+            #                  "version": version_data["jpol"]["G2_msg2-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G2_msg2-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G1_timer-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G1_timer-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "timer-inrpc",
+            #                  "version": version_data["jpol"]["G1_timer-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G1_timer-inrpc"]["build"],
+            #                  }
+            #     },
+            #     "G2_timer-inrpc": {
+            #         "hosts": hosts_data["jpol"]["G2_timer-inrpc"],
+            #         "vars": {
+            #                  "env":"test",
+            #                  "project":"jpol",
+            #                  "module": "timer-inrpc",
+            #                  "version": version_data["jpol"]["G2_timer-inrpc"]["version"],
+            #                  "build": version_data["jpol"]["G2_timer-inrpc"]["build"],
+            #                  }
+            #     },
             }
 }
