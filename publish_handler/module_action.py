@@ -76,11 +76,7 @@ class ModuleUpdateHandler(RequestHandler):
                         callback_message['status'] = 1
                     callback_messages.append(callback_message)
                 # 阻塞
-                callback_status = yield self.callback(task_callback_url, jobid, task_id, jobname, status, callback_messages)
-                if callback_status:
-                    print('task callback success: {}'.format(callback_status))
-                else:
-                    print('task callback fail')
+                yield self.callback(task_callback_url, jobid, task_id, jobname, status, callback_messages)
                 if result_data:
                     # 这里是阻塞的，返回都为成功
                     """
@@ -124,7 +120,6 @@ class ModuleUpdateHandler(RequestHandler):
 
     @run_on_executor
     def callback(self, callback_url, jobid, task_id, jobname, status, messages):
-        print("task callback")
         payload = {
             "jobid": jobid,
             "taskid": task_id,
@@ -135,12 +130,12 @@ class ModuleUpdateHandler(RequestHandler):
         res = requests.post(callback_url, json=payload)
         if res.status_code == requests.codes.ok:
             context = res.json()
-            logger.info("callback sucess:{}".format(context))
+            logger.info("callback success:{}".format(context))
             if context['status'] == 1:
                 return True
             else:
                 return False
         else:
-            logger.info("callback fail")
+            logger.error("callback fail: {}".format(payload))
             return False
 

@@ -1,11 +1,14 @@
 import json
 import threading
 import uuid
-import logging
+import logging.config
 from functools import partial
 from kazoo.client import KazooClient
 from kazoo.recipe.watchers import ChildrenWatch, DataWatch
+from base.configuration import LOG_SETTINGS
 
+logging.config.dictConfig(LOG_SETTINGS)
+logger = logging.getLogger('zkhandler')
 
 class ZkOperation(object):
     def __init__(self, zk_hosts, zk_root):
@@ -37,13 +40,12 @@ class ZkOperation(object):
     def _create_node(self, node, value=None):
         if value is None:
             value = ''
-        print(value)
         value = json.dumps(value)
         if self.zk.connected and not self.zk.exists(node):
             self.zk.create(node, makepath=True, value=value.encode())
             return True
         else:
-            print('zk not connected or node is exists')
+            logger.error('zk not connected or node is exists')
             return False
 
     def create_new_job(self, job_id, job_value=None):
@@ -54,7 +56,7 @@ class ZkOperation(object):
             ret = self._create_node(node, job_value)
             return ret
         else:
-            print('job_id is null')
+            logger.error('job_id is null')
             return False
 
     def create_new_target(self, job_id, target, target_value):
@@ -84,8 +86,10 @@ class ZkOperation(object):
 
     def handler_task(self, job_id, task_id, status):
         # 为不必传回target, 遍历任务节点
+        if not self.is_job_exist(job_id):
+            logger.error("can not find this jobid: {}".format(job_id))
+            return False
         job_node = "{}/jobs/{}/targets".format(self.root, job_id)
-        signal_node = "{}/singal/{}".format(self.root, job_id)
         for target in self.zk.get_children(job_node):
             target_node = "{}/{}/tasks".format(job_node, target)
             for task in self.zk.get_children(target_node):
@@ -99,12 +103,12 @@ class ZkOperation(object):
                     tx.commit()
                     task_value, _ = self.zk.get(task_node)
                     return True
-        logging.error("can not find this taskid: {} in {}".format(task_id, job_id))
+        logger.error("can not find this taskid: {} in {}".format(task_id, job_id))
         return False
 
     def send_signal(self, job_id):
         node = '{}/signal/{}'.format(self.root, job_id)
-        print("send singal : {}".format(job_id))
+        logger.info("send singal : {}".format(job_id))
         tx = self.zk.transaction()
         tx.set_data(node, uuid.uuid4().bytes)
         tx.commit()
