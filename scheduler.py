@@ -3,6 +3,8 @@ import uuid
 import threading
 import requests
 import uuid
+import logging.config
+from zk_handler.task_operation import ZkOperation
 from functools import partial
 from kazoo.client import KazooClient
 from kazoo.protocol.states import WatchedEvent
@@ -10,6 +12,11 @@ from kazoo.recipe.watchers import ChildrenWatch, DataWatch
 from kazoo.recipe.lock import Lock, LockTimeout
 from portal_handler.release_record import record_target_status
 from base import JobStatus, TargetStatus, TaskStatus, ResponseStatus, configuration
+from base.configuration import LOG_SETTINGS
+
+
+logging.config.dictConfig(LOG_SETTINGS)
+logger = logging.getLogger('scheduler')
 
 
 def count_targets(job_targets, statuses):
@@ -26,38 +33,50 @@ def choose_target(targets, count):
 
 class Scheduler:
     def __init__(self, zk_hosts, zk_root):
-        self.zk = KazooClient(zk_hosts)
+        self.zkhandler = ZkOperation(zk_hosts, zk_root)
+        self.zk = self.zkhandler.zk
         self.root = zk_root
         self.jobs = set()
         self.event = threading.Event()
 
-    def add_callback(self, job_id):
-        node = '/{}/callback/{}'.format(self.root, job_id)
-        self.zk.ensure_path(node)
+    def job_callback(self, job_id, status, messages=None):
+        if self.zkhandler.update_callback_by_jobid(job_id, status, messages):
+            return True
+        else:
+            return False
+
+    def target_callback(self, job_id, target, status, messages=None):
+        if self.zkhandler.update_callback_by_target(job_id, target, status, messages):
+            return True
+        else:
+            return False
+
+    def task_callback(self, job_id, task_id, status, messages=None):
+        if self.zkhandler.update_callback_by_taskid(job_id, task_id, status, messages):
+            return True
+        else:
+            return False
 
     def get_targets(self, job_id):
         result = {}
         node = '/{}/jobs/{}/targets'.format(self.root, job_id)
         for target in self.zk.get_children(node):
             path = '{}/{}'.format(node, target)
-            print(path)
             status, _ = self.zk.get(path)
-            print(status)
             result[target] = json.loads(status.decode())
-            print(result)
         return result
 
     def schedule(self, job_id):
-        print("schedule start")
+        logger.info("schedule start:job id={}".format(job_id))
         node = '/{}/jobs/{}'.format(self.root, job_id)
         lock_node = '{}/lock'.format(node)
         self.zk.ensure_path(lock_node)
         lock = Lock(self.zk, lock_node)
         try:
             if lock.acquire(timeout=1):
+                logger.info("Lock acquire: job_id={}".format(job_id))
                 data, _ = self.zk.get(node)
                 job = json.loads(data.decode())
-                print(job)
                 """
                 {
                     "jobid":"",
@@ -74,45 +93,48 @@ class Scheduler:
                 fail_rate = job.get('fail_rate', 0)
                 #  当前在运行主机状态
                 job_targets = self.get_targets(job_id)
-                # 如果失败次数大于设定值退出
+                # 如果失败次数大于设定值退出, 暂时取消，执行所有target
                 # 并发大于一，失败数可能等于并发数
-                if count_targets(job_targets, (TargetStatus.fail.value,)) > fail_rate:
-                    return self.add_callback(job_id)
+                # if count_targets(job_targets, (TargetStatus.fail.value,)) > fail_rate:
+                #     return self.job_callback(job_id, JobStatus.fail.value)
                 # 修改指定target状态为running
                 wait_schedule = choose_target(job_targets, parallel - count_targets(job_targets, (TargetStatus.running.value,)))
                 for wait_target in wait_schedule:
                     self.set_target_status(job_id, wait_target, TargetStatus.running.value)
                 self.handle_running_target(job_id)
-
         except LockTimeout:
-            print('LockTimeout')
+            logger.error('Lock timeout: jobid={}'.format(job_id))
         finally:
-            lock.release()
+            if lock.release():
+                logger.info('Lock release: success, jobid={}'.format(job_id))
+            else:
+                logger.error('Lock release: fail, job_id={}'.format(job_id))
 
     def set_target_status(self, job_id, target, status, current_task=None):
-        print("set target status")
+        logger.info("set target status:job_id={}, target={}, status={}".format(job_id, target, status))
         node = '{}/jobs/{}/targets/{}'.format(self.root, job_id, target)
         data, _ = self.zk.get(node)
         data = json.loads(data.decode())
         data['status'] = status
         if current_task is not None:
             data['current_task'] = current_task
-        print(data)
         tx = self.zk.transaction()
         tx.set_data('{}/jobs/{}/targets/{}'.format(self.root, job_id, target), json.dumps(data).encode())
         tx.commit()
-        if record_target_status(job_id, target, status):
-            print("record_target_status success")
-        else:
-            print("record_target_status fail")
+        if not self.target_callback(job_id, target, status):
+            logger.error("update callback by target: fail, jobid={}, target={}, status={}".format(job_id, target, status))
 
     def handle_running_target(self, job_id):
-        print("handle_running_target start")
+        logger.info("handle_running_target start: job_id={}".format(job_id))
         node = '{}/jobs/{}/targets'.format(self.root, job_id)
         # 这里遍历了job下所有的主机状态，主机数量多的话，要考虑性能问题
         targets = self.zk.get_children(node)
         target_success_count = 0
+        target_fail_count = 0
+        target_init_count = 0
+        target_running_count = 0
         for target in targets:
+            logger.info("handle_running_target start: job_id={}, target={}".format(job_id, target))
             path = '{}/{}'.format(node, target)
             target_value, _ = self.zk.get(path)
             target_value = json.loads(target_value.decode())
@@ -130,9 +152,26 @@ class Scheduler:
                 self.handle_running_task(job_id, target, target_running_task)
             elif target_status == TargetStatus.success.value:
                 target_success_count += 1
-        print("target_success_count: {}, targets number: {}".format(target_success_count, len(targets)))
-        if target_success_count == len(targets):
-            self.add_callback(job_id)
+            elif target_status == TargetStatus.fail.value:
+                target_fail_count += 1
+            elif target_status == TargetStatus.init.value:
+                target_init_count += 1
+            elif target_status == TargetStatus.running.value:
+                target_running_count += 1
+            else:
+                logger.error("handle running target: unexpected target status, target_status={}".format(target_status))
+
+        logger.info("job targets status detail: jobid={}, targets_count={}, target_init_count={}, target_running_count={}, target_success_count={}, target_fail_count={}".format(job_id, len(targets), target_init_count, target_running_count, target_success_count, target_fail_count))
+
+        if (target_success_count + target_fail_count) == len(targets):
+            logger.info("job is finished: jobid={}, targets_count={}, target_success_count={}, target_fail_count={}".format(job_id, len(targets), target_success_count, target_fail_count))
+            # job 终结点
+            if target_success_count == len(targets):
+                self.job_callback(job_id, JobStatus.success.value)
+            else:
+                self.job_callback(job_id, JobStatus.fail.value)
+        else:
+            logger.info("job is not finished: jobid={},target_count: {}, job target_success_count: {}".format(job_id, len(targets), target_success_count))
 
     def get_task_status(self, job_id, target, target_running_task):
         node = '{}/jobs/{}/targets/{}/tasks/{}'.format(self.root, job_id, target, target_running_task)
@@ -140,21 +179,8 @@ class Scheduler:
         task_value = task_value.decode()
         return json.loads(task_value)
 
-    @staticmethod
-    def get_publish_next_task(target_running_task, task_sequence=None):
-        publish_task_sequence = [
-            "check_version", "offline_host,", "stop_service", "update_version",
-            "start_service", "check_service", "online_host",  "check_host"]
-        if task_sequence is None:
-            task_sequence = publish_task_sequence
-        running_task_index = publish_task_sequence.index(task_sequence)
-        if running_task_index >= len(publish_task_sequence) - 1 :
-            return None
-        else:
-            return publish_task_sequence[running_task_index + 1]
-
     def handle_running_task(self, job_id, target, target_running_task):
-        print("handle running task start")
+        logger.info("handle running task start: job_id={}, target={}, target_running_task={}".format(job_id, target, target_running_task))
         node = '{}/jobs/{}/targets/{}/tasks/{}'.format(self.root, job_id, target, target_running_task)
         task_value, _ = self.zk.get(node)
         task_value = json.loads(task_value.decode())
@@ -167,9 +193,12 @@ class Scheduler:
             "callback_url":"url"
         }
         """
-        # target第一个任务
-        print(task_value)
+        logger.info("running task info: task_info = {}".format(task_value))
         if task_value['status'] == TaskStatus.init.value:
+            self.add_new_task(job_id, target, task_value['task_id'])
+        elif task_value['status'] == TaskStatus.running.value:
+            # 重启后执行正在运行的任务，保留扩展判断
+            logger.info("handle running task: task status is running, run this task again")
             self.add_new_task(job_id, target, task_value['task_id'])
         elif task_value['status'] == TaskStatus.success.value:
             if task_value['next_task'] is not None:
@@ -180,75 +209,124 @@ class Scheduler:
                 self.set_target_status(job_id, target, TargetStatus.success.value, current_task="")
                 self.send_signal(job_id)
         elif task_value['status'] == TaskStatus.fail.value:
-            # 任务失败 job失败上报
-            self.add_callback(job_id)
+            # 任务失败 target失败
+            self.set_target_status(job_id, target, TargetStatus.fail.value)
         else:
-            pass
+            logger.error("handle running task: unexpected task status")
 
     def add_new_task(self, job_id, target, new_task_id):
+        logger.info("add new task: job_id={}, target={}, new_task_id={}".format(job_id, target, new_task_id))
+        job_info = self.zkhandler.get_job_info(job_id)
+        target_info = self.zkhandler.get_target_info(job_id, target)
+        task_info = self.zkhandler.get_task_info(job_id, target, new_task_id)
+        self.handler_post_task(job_info, target_info, task_info)
+        # try:
+        #     job_info = self.zkhandler.get_job_info(job_id)
+        #     target_info = self.zkhandler.get_target_info(job_id, target)
+        #     task_info = self.zkhandler.get_task_info(job_id, target, new_task_id)
+        #     self.handler_post_task(job_info, target_info, task_info)
+        # except Exception as e:
+        #     logger.error('add new task: exception={}'.format(e))
+
+    def handler_post_task(self, job_info, target_info, task_info):
         # 修改新任务状态
-        print("add new task")
-        job_node = '{}/jobs/{}'.format(self.root, job_id)
-        job_value, _ = self.zk.get(job_node)
-        job_value = json.loads(job_value.decode())
-        bu = job_value['bu']
-        module = job_value['module']
-        environment = job_value['environment']
-        callback_url = job_value['callback_url']
-        load_balancing_hosts = job_value['load_balancing']
-        new_task_node = '{}/jobs/{}/targets/{}/tasks/{}'.format(self.root, job_id, target, new_task_id)
-        new_task_value, _ = self.zk.get(new_task_node)
-        new_task_value = json.loads(new_task_value.decode())
+        job_id = job_info['jobid']
+        target = target_info['target']
+        task_id = task_info['task_id']
         tx = self.zk.transaction()
-        new_task_value['status'] = TaskStatus.running.value
-        tx.set_data(new_task_node, json.dumps(new_task_value).encode())
+        task_node = '{}/jobs/{}/targets/{}/tasks/{}'.format(self.root, job_id, target, task_id)
+        task_info['status'] = TaskStatus.running.value
+        tx.set_data(task_node, json.dumps(task_info).encode())
+
         # 修改主机状态
         target_node = '{}/jobs/{}/targets/{}'.format(self.root, job_id, target)
-        target_value, _ = self.zk.get(target_node)
-        target_value = json.loads(target_value.decode())
-        target_value['status'] = TargetStatus.running.value
-        target_value['current_task'] = new_task_id
-        tx.set_data(target_node, json.dumps(target_value).encode())
+        target_info['status'] = TargetStatus.running.value
+        target_info['current_task'] = task_id
+        tx.set_data(target_node, json.dumps(target_info).encode())
+        payload = self.get_task_payload(job_info, target_info, task_info)
+        if payload:
+            tx.commit()
+            # 这里有callback阻塞，要改进
+            if not self.task_callback(job_id, task_id, TaskStatus.running.value):
+                logger.error("update callback by taskid: fail, job_id={}, target={}, task_id={}".format(job_id, target, task_id))
+            if self.post_task(payload):
+                logger.info("post task: success, jobid={}, target={}, taskid={}".format(job_id, target, task_id))
+            else:
+                # 发起新任务失败，终止，上报
+                logger.error("post task: failed, jobid={}, target={}, taskid=".format(job_id, target, task_id))
+                self.set_target_status(job_id, target, TargetStatus.fail.value)
+        else:
+            logger.error('payload is False:job_id={}, target={}, new_task_id={}'.format(job_id, target, task_id))
 
-        hosts = [{"host":target}]
-        job_name = new_task_value['task_name']
-        # 处理异机逻辑
-        content = {
-            "environment": environment,
-            "bu": bu,
-            "module": module,
+    @staticmethod
+    def get_task_payload(job_info, target_info, task_info):
+        # 解析job info
+        job_id = job_info['jobid']
+        version = job_info['version']
+        build = job_info['build']
+        extend_key = job_info['extend_key']
+        load_balancing_hosts = job_info['load_balancing']
+        # 解析target info
+        target = target_info['target']
+        # 解析task info
+        task_id = task_info['task_id']
+        job_name = task_info['task_name']
+        content = task_info['content']
+        callback_url = task_info['callback_url']
+        parameters = []   # parameters目前由job.extend_key统一定义,最好各task自行定义
+        for k,v in extend_key.items():
+            tmp_dict = dict()
+            tmp_dict[k] = v
+            parameters.append(tmp_dict)
+        parameters.append({"load_balancing": load_balancing_hosts})
+        hosts = []
+        if isinstance(target, str):
+            hosts = [{"host":target}]
+        elif isinstance(target, list):
+            for host in target:
+                hosts.append({"host": host})
+        payload = dict()
+        # if job_name == 'offline_host':
+        #     if load_balancing_hosts:
+        #         # offline额外参数, target变为参数, 负载均衡主机作为target
+        #         offline_dict = dict()
+        #         offline_dict['offline'] = hosts
+        #         parameters.append(offline_dict)
+        #         payload = {
+        #             "jobid": job_id,
+        #             "taskid": task_id,
+        #             "content": content,
+        #             "hosts": load_balancing_hosts,
+        #             "jobname": job_name,
+        #             "version_info": {
+        #                 "version": version,
+        #                 "build": build,
+        #             },
+        #             # 如果传递remotescript则执行remotescript路径脚本，否则按照‘/bu/group/module/jobname ’规则进行拼接脚本路径
+        #             "remotescript": "",
+        #             "parameters": parameters,
+        #             "callback": callback_url,
+        #         }
+        #     else:
+        #         logger.error('load balancing hosts is False: job_id={}, target={}, new_task_id={}'.format(job_id, target, task_id))
+        # else:
+        payload = {
+            "jobid": job_id,
+            "taskid": task_id,
+            "content": content,
+            "hosts": hosts,
+            "jobname": job_name,
+            "version_info": {
+                    "version": version,
+                    "build": build,
+                },
+            "parameters": parameters,
+            "callback": callback_url,
         }
-        if job_name == 'offline':
-            payload = {
-                "jobid": job_id,
-                "taskid": new_task_id,
-                "content": content,
-                "hosts": load_balancing_hosts,
-                "jobname": job_name,
-                "parameters": [{"offline": hosts}],
-                "callback_url": callback_url,
-            }
-        else:
-            payload = {
-                "jobid": job_id,
-                "taskid": new_task_id,
-                "content": content,
-                "hosts": hosts,
-                "jobname": job_name,
-                "parameters": [{"k1":"v1"},{"k2":"v3"},{"k3":"v3"}],
-                "callback_url": callback_url,
-            }
-        print("%%%%%%%%%%%%%%%")
-        print(target_value)
-        tx.commit()
-        if self.post_task(payload):
-            self.post_job_status(job_id)
-        else:
-            # 发起新任务失败，job终止，上报
-            self.add_callback(job_id)
+        return payload
 
     def post_job_status(self, job_id):
-        print("{} post job status".format(job_id))
+        logger.info("post job status: job_id={}".format(job_id))
 
     def send_signal(self, job_id):
         node = '{}/signal/{}'.format(self.root, job_id)
@@ -257,40 +335,16 @@ class Scheduler:
         tx.commit()
 
     def post_task(self, payload):
-        """
-       **Request Syntax**
-       ```
-        POST /jobs  HTTP/1.1
-        Content-Type: application/json
-        {
-            "jobid":"",
-            "hosts" : [{"host":"10.99.70.51"},{"host":"10.99.70.52"}], 	// 服务器地址，json数组方式传递
-            "content":{"bu":"","group":"","model":""}, // 上下文信息
-            "jobname" : "demo",
-            "parameters" : [{"k1":"v1"},{"k2":"v3"},{"k3":"v3"}],	// 参数，json数组方式传递
-            "callback":"url"    // 用于返回此次发布状态
-        }
-
-        ```
-        **Response Syntax**
-
-        ```
-        Content-Type: application/json
-        {
-            "jobid":"",
-            "hosts" : [{"host":"10.99.70.51"},{"host":"10.99.70.52"}],
-            "jobname" : "demo",
-            "content":{"bu":"","group":"","model":""},
-            "parameters" : [{"k1":"v1"},{"k2":"v3"},{"k3":"v3"}],
-            "callback":"url"
-            "status":"" // 1：参数接收成功，2：参数接收失败
-        }
-        """
         res = requests.post(configuration.config_dict['post_task_url'], json=payload)
-        context = res.json()
-        if res.status_code == requests.codes.ok and context['status'] == ResponseStatus.success.value:
-            return True
+        if res and res.status_code == requests.codes.ok:
+            context = res.json()
+            if context['status'] == ResponseStatus.success.value:
+                return True
+            else:
+                logger.error("post task: response context status fail, context={}".format(context))
+                return False
         else:
+            logger.error("post task: response status fail, response={}".format(res))
             return False
 
     def handle_new_job(self, jobs):
@@ -301,7 +355,8 @@ class Scheduler:
         :return:
         """
         for job_id in set(jobs).difference(self.jobs):
-            print("handler new job {}".format(job_id))
+            logger.info("handler new job: job_id={}".format(job_id))
+            self.job_callback(job_id, JobStatus.running.value)
             DataWatch(self.zk, '{}/signal/{}'.format(self.root, job_id),
                       partial(self.handle_exist_job, job_id=job_id))
             self.schedule(job_id)
@@ -313,31 +368,45 @@ class Scheduler:
         监听portal那里插入的新任务
         :return:
         """
-        print("scheduler watch start")
+        logger.info("scheduler watch start")
+        jobs_path = '{}/jobs'.format(self.root)
+        if not self.zk.exists(jobs_path):
+            self.zk.ensure_path(jobs_path)
+        signal_path = '{}/signal'.format(self.root)
+        if not self.zk.exists(signal_path):
+            self.zk.ensure_path(signal_path)
         ChildrenWatch(self.zk, '{}/signal'.format(self.root), self.handle_new_job)
 
     def handle_exist_job(self, data, stat, event, job_id):
-        '''
-        收到signal后，进入job处理逻辑， 如果已有callback，监听退出
-        :param job_id:
-        :param args:
-        :return:
-        '''
-
+        """
+        收到signal后，进入job处理逻辑， callback结束，监听退出
+        """
         if isinstance(event, WatchedEvent) and event.type == 'CHANGED':
-            if self.zk.exists('{}/callback/{}'.format(self.root, job_id)):
+            job_callback_info = self.zkhandler.get_callback_info(job_id)["callback_info"]
+            if job_callback_info:
+                job_status = job_callback_info["status"]
+                if job_status == JobStatus.success.value:
+                    logger.info("job success: job_id={}".format(job_id))
+                    return False
+                elif job_status == JobStatus.fail.value:
+                    logger.error("job fail: job_id={}".format(job_id))
+                    return False
+                self.schedule(job_id)
+                return True
+            else:
+                logger.error("job callback is not exist: jobid={}".format(job_id))
                 return False
-            self.schedule(job_id)
-            return True
         else:
-            print(event)
+            logger.info("handle exist job: WatchedEvent={}".format(event))
 
     def handle_callback(self, job_id):
         # report_status_to_mysql()
         pass
 
     def start(self):
+        logger.info("scheduler start")
         self.zk.start()
+        self.zk.add_auth('digest', 'publish:publish')
         self.watch()
         self.event.wait()
         # while not self.event.is_set():

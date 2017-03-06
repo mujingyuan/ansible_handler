@@ -42,21 +42,26 @@ class JobsCallback(RequestHandler):
         body = json_decode(self.request.body)
         job_id = body.get('jobid', '')
         task_id = body.get('taskid', '')
-        job_name = body.get('jobname', '')
-        job_status = body.get('status', '')
-        job_message = body.get('messages', [])
-        if job_id == '' or job_name == '' or job_status == '' or job_message == []:
+        task_name = body.get('jobname', '')
+        task_status = body.get('status', '')
+        task_message = body.get('messages', [])
+        if job_id == '' or task_name == '' or task_status == '' or task_message == []:
             res = {"status": JobCallbackResponseStatus.fail.value, "message": "some argument is null"}
             logger.error("job callback fail: {}".format("some argument is null"))
             self.write(json.dumps(res))
             self.finish()
         else:
-            logger.info('Job_ID: {}, Task_id: {}, Job_Step: {}, Job_Status: {}'.format(job_id, task_id, job_name, job_status))
-            for message in job_message:
+            logger.info('Job_ID: {}, Task_id: {}, Job_Step: {}, Job_Status: {}'.format(job_id, task_id, task_name, task_status))
+            zk = self.application.zk
+            if zk.update_callback_by_taskid(job_id, task_id, task_status, task_message):
+                logger.info("update callback by taskid sucess: jobid={}, taskid={}".format(job_id, task_id))
+            else:
+                logger.error("update callback by taskid failed: jobid={}, taskid={}".format(job_id, task_id))
+            for message in task_message:
                 logger.info('"Host": {}, "status": {}, "message": {}'.format(message['host'], message['status'], message['message']))
-            if self.application.zk.handler_task(job_id, task_id, job_status):
+            if zk.handler_task(job_id, task_id, task_name, task_message, task_status):
                 logger.info("handler task success after callback")
-                self.application.zk.send_signal(job_id)
+                zk.send_signal(job_id)
                 res = {"status": JobCallbackResponseStatus.success.value,
                        "message": "callback receive success, and handler task success after callback"}
             else:

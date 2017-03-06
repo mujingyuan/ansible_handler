@@ -18,7 +18,6 @@ logger = logging.getLogger('module_action')
 
 class ModuleUpdateHandler(RequestHandler):
     executor = ThreadPoolExecutor(8)
-    report_url = 'http://10.99.7.15:83/api/release/create'
     playbooks_dir = os.path.join(publish_base_dir, 'playbooks')
 
     @asynchronous
@@ -28,35 +27,51 @@ class ModuleUpdateHandler(RequestHandler):
         body = self.request.body.decode()
         body = json.loads(body)
         logger.info("post body: {}".format(body))
+        # 解析参数
         content = body.get('content', '')
         environment = content.get('environment', '')
         project = content.get('project', '')
         module = content.get('module', '')
-        # 兼容新旧版hosts参数
-        host_list = body.get('host_list', [])
-        hosts = body.get('hosts', [])
-        if not host_list:
-            for host in hosts:
-                if isinstance(host, str):
-                    host_list.append(host)
-                elif isinstance(host, dict):
-                    host_list.append(host['host'])
-        resource = body.get('resource', inventory_data[project])
+        hosts = body.get('hosts')
+        parameters = body.get('parameters')
+        version_info = body.get('version_info', '')
+        version = version_info['version']
+        build = version_info['build']
+        host_list = []
+        for host in hosts:
+            host_dict = dict()
+            host_dict["hostname"] = host['host']
+            host_list.append(host_dict)
+        resource =  {
+            "default": {
+                 "hosts": host_list,
+                 "vars": {
+                          "env": environment,
+                          "project": project,
+                          "module": module,
+                          "version": version,
+                          "build": build,
+                          }
+             },
+        }
         jobid = body.get('jobid', '')
         task_id = body.get('taskid', '')
         jobname = body.get('jobname', '')
         task_callback_url = body.get('callback', '')
         playbook_name = jobname + '.yml'
-        logger.info('playbook_name:{}'.format(playbook_name))
         if not environment or not project or not module or not host_list or not resource:
             self.write('argument is null')
             logger.info('argument is null')
             self.finish()
         else:
+            hostlist = []
+            for host in hosts:
+                hostlist.append(host['host'])
             extra_vars = {
-                             "host": host_list
+                             "host": hostlist
                          }
             playbook_path = os.path.join(self.playbooks_dir, environment, project, module, playbook_name)
+            logger.info('playbook_name:{}'.format(playbook_path))
             result_data = yield self.run_ansible(resource, extra_vars, playbook_path)
             logger.info("run ansible result data: {}".format(result_data))
             if task_callback_url:
@@ -78,7 +93,7 @@ class ModuleUpdateHandler(RequestHandler):
                 # 阻塞
                 yield self.callback(task_callback_url, jobid, task_id, jobname, status, callback_messages)
                 if result_data:
-                    # 这里是阻塞的，返回都为成功
+                    # 这里是阻塞的，返回都为成功, 后续要加异步队列
                     """
                     **Response Syntax**
 
@@ -127,6 +142,7 @@ class ModuleUpdateHandler(RequestHandler):
             "status": status,
             "messages": messages
         }
+        logger.info("module action callback: payload={}".format(payload))
         res = requests.post(callback_url, json=payload)
         if res.status_code == requests.codes.ok:
             context = res.json()
