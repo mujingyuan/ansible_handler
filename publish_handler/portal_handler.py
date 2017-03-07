@@ -6,7 +6,7 @@ import uuid
 import logging.config
 from publish_handler.base import PublishTask, TargetPublishTask, PublishJob
 from base.configuration import get_publish_task_config, get_task_id_prefix, config_dict, LOG_SETTINGS
-from base import TargetStatus, TaskStatus
+from base import TargetStatus, TaskStatus, ResponseStatus
 
 logging.config.dictConfig(LOG_SETTINGS)
 logger = logging.getLogger('portal_handler')
@@ -22,7 +22,7 @@ class PublishHandler(RequestHandler):
         job_info = body.get('job_info', '')
         targets = body.get('targets', '')
         parameters = body.get('parameters', '')
-        callback_url = body.get('callback_url', '')
+        callback_url = body.get('callback', '')
         if job_id == '' or release_config == '' or job_type == '' or job_info == '' or targets == []:
             self.write('argument is null')
             self.finish()
@@ -57,6 +57,7 @@ class PublishHandler(RequestHandler):
                     "extend_key": extend_key,
                     "parallel": parallel,
                     "fail_rate": fail_rate,
+                    "callback": callback_url,
                     # task callback url 暂时没用
                     "callback_url": config_dict['task_callback_url']
                 }
@@ -64,10 +65,18 @@ class PublishHandler(RequestHandler):
         ret = self.add_task_to_scheduler(job_id, job_value, execute_hosts, job_sequence)
         if ret:
             if self.start_job(job_id):
-                self.write('job receive success')
+                res = {
+                    "status": ResponseStatus.success.value,
+                    "message": "job receive success"
+                }
+                self.write(json.dumps(res))
                 self.finish()
         else:
-            self.write('job create fail')
+            res = {
+                    "status": ResponseStatus.fail.value,
+                    "message": "job create fail"
+                }
+            self.write(json.dumps(res))
             self.finish()
 
     @staticmethod

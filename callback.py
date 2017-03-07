@@ -22,6 +22,7 @@ class Callback:
         self.root = zk_root
         self.event = threading.Event()
         self.callbacks = {}
+        self.callback_handlers = dict()
 
     def get_callback_value(self, callback):
         callback_value = self.zkhandler.get_callback_info(callback)
@@ -32,30 +33,32 @@ class Callback:
 
     def run_callback(self, callback):
         callback_value = self.get_callback_value(callback)
-        try:
-            callback_handler = PortalCallback(callback_value)
-            if callback_handler.post_callback():
-                callback_level = callback_value["callback_level"]
-                callback_info = callback_value["callback_info"]
-                callback_status = callback_info["status"]
-                if callback_level == CallbackLevel.job.value:
-                    if callback_status == JobStatus.success.value or callback_status == JobStatus.fail.value:
-                        logger.info("run callback: job is finished, callback status ={}".format(callback_status))
-                        self.delete(callback)
-                elif callback_level == CallbackLevel.target.value:
-                    if callback_status == TargetStatus.success.value or callback_status == TargetStatus.fail.value:
-                        logger.info("run callback: target is finished, callback status ={}".format(callback_status))
-                        self.delete(callback)
-                elif callback_level == CallbackLevel.task.value:
-                    if callback_status == TaskStatus.success.value or callback_status == TaskStatus.fail.value:
-                        logger.info("run callback: task is finished, callback status ={}".format(callback_status))
-                        self.delete(callback)
-                else:
-                    logger.error("wrong callback callback level")
+        callback_info = callback_value["callback_info"]
+        job_id = callback_info["job_id"]
+        if job_id in self.callback_handlers.keys():
+            callback_handler = self.callback_handlers.get(job_id)
+        else:
+            job_info = self.zkhandler.get_job_info(job_id)
+            callback_handler = PortalCallback(job_id, job_info)
+            self.callback_handlers[job_id] = callback_handler
+        if callback_handler.post_callback(callback_value):
+            callback_level = callback_value["callback_level"]
+            callback_status = callback_info["status"]
+            if callback_level == CallbackLevel.job.value:
+                if callback_status in (JobStatus.success.value, JobStatus.fail.value):
+                    logger.info("run callback: job is finished, callback status ={}".format(callback_status))
+                    self.delete(callback)
+                    del self.callback_handlers[job_id]
+            elif callback_level == CallbackLevel.target.value:
+                if callback_status in (TargetStatus.success.value, TargetStatus.fail.value):
+                    logger.info("run callback: target is finished, callback status ={}".format(callback_status))
+                    self.delete(callback)
+            elif callback_level == CallbackLevel.task.value:
+                if callback_status in (TaskStatus.success.value, TaskStatus.fail.value):
+                    logger.info("run callback: task is finished, callback status ={}".format(callback_status))
+                    self.delete(callback)
             else:
-                logger.error("run callback fail: callback={}".format(callback))
-        except Exception as e:
-            logging.error(e)
+                logger.error("wrong callback callback level")
 
     def watch(self):
         callback_path = '{}/callback'.format(self.root)
@@ -67,7 +70,7 @@ class Callback:
         while not self.event.is_set():
             for callback in self.zk.get_children('/{}/callback'.format(self.root)):
                 self.run_callback(callback)
-            self.event.wait(10)
+            self.event.wait(120)
 
     def handle_new_callback(self, callbacks):
         for callback in set(callbacks).difference(self.callbacks):
@@ -109,8 +112,8 @@ class Callback:
 if __name__ == '__main__':
     zk_connect = '127.0.0.1:2181'
     zk_root = '/eju_publish'
-    callback_handler = Callback(zk_connect, zk_root)
+    callbacks_handler = Callback(zk_connect, zk_root)
     try:
-        callback_handler.start()
+        callbacks_handler.start()
     except KeyboardInterrupt:
-        callback_handler.shutdown()
+        callbacks_handler.shutdown()

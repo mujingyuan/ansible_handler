@@ -69,46 +69,33 @@ class Scheduler:
     def schedule(self, job_id):
         logger.info("schedule start:job id={}".format(job_id))
         node = '/{}/jobs/{}'.format(self.root, job_id)
-        lock_node = '{}/lock'.format(node)
-        self.zk.ensure_path(lock_node)
-        lock = Lock(self.zk, lock_node)
-        try:
-            if lock.acquire(timeout=1):
-                logger.info("Lock acquire: job_id={}".format(job_id))
-                data, _ = self.zk.get(node)
-                job = json.loads(data.decode())
-                """
-                {
-                    "jobid":"",
-                    "ud": "jpol",
-                    "module": "mb-inrpc",
-                    "load_balancing": [{"host":"10.99.70.51"},{"host":"10.99.70.52"}]，
-                    "targets" : [{"host":"10.99.70.51"},{"host":"10.99.70.52"}], 	// 服务器地址，json数组方式传递
-                    "parameters" : [{"k1":"v1"},{"k2":"v3"},{"k3":"v3"}],	// 参数，json数组方式传递
-                    "parallel": 1 //并行数量
-                    "fail_rate": 0 // 容错数量
-                }
-                """
-                parallel = job.get('parallel', 1)
-                fail_rate = job.get('fail_rate', 0)
-                #  当前在运行主机状态
-                job_targets = self.get_targets(job_id)
-                # 如果失败次数大于设定值退出, 暂时取消，执行所有target
-                # 并发大于一，失败数可能等于并发数
-                # if count_targets(job_targets, (TargetStatus.fail.value,)) > fail_rate:
-                #     return self.job_callback(job_id, JobStatus.fail.value)
-                # 修改指定target状态为running
-                wait_schedule = choose_target(job_targets, parallel - count_targets(job_targets, (TargetStatus.running.value,)))
-                for wait_target in wait_schedule:
-                    self.set_target_status(job_id, wait_target, TargetStatus.running.value)
-                self.handle_running_target(job_id)
-        except LockTimeout:
-            logger.error('Lock timeout: jobid={}'.format(job_id))
-        finally:
-            if lock.release():
-                logger.info('Lock release: success, jobid={}'.format(job_id))
-            else:
-                logger.error('Lock release: fail, job_id={}'.format(job_id))
+        data, _ = self.zk.get(node)
+        job = json.loads(data.decode())
+        """
+        {
+            "jobid":"",
+            "ud": "jpol",
+            "module": "mb-inrpc",
+            "load_balancing": [{"host":"10.99.70.51"},{"host":"10.99.70.52"}]，
+            "targets" : [{"host":"10.99.70.51"},{"host":"10.99.70.52"}], 	// 服务器地址，json数组方式传递
+            "parameters" : [{"k1":"v1"},{"k2":"v3"},{"k3":"v3"}],	// 参数，json数组方式传递
+            "parallel": 1 //并行数量
+            "fail_rate": 0 // 容错数量
+        }
+        """
+        parallel = job.get('parallel', 1)
+        fail_rate = job.get('fail_rate', 0)
+        #  当前在运行主机状态
+        job_targets = self.get_targets(job_id)
+        # 如果失败次数大于设定值退出, 暂时取消，执行所有target
+        # 并发大于一，失败数可能等于并发数
+        # if count_targets(job_targets, (TargetStatus.fail.value,)) > fail_rate:
+        #     return self.job_callback(job_id, JobStatus.fail.value)
+        # 修改指定target状态为running
+        wait_schedule = choose_target(job_targets, parallel - count_targets(job_targets, (TargetStatus.running.value,)))
+        for wait_target in wait_schedule:
+            self.set_target_status(job_id, wait_target, TargetStatus.running.value)
+        self.handle_running_target(job_id)
 
     def set_target_status(self, job_id, target, status, current_task=None):
         logger.info("set target status:job_id={}, target={}, status={}".format(job_id, target, status))
@@ -134,35 +121,47 @@ class Scheduler:
         target_init_count = 0
         target_running_count = 0
         for target in targets:
-            logger.info("handle_running_target start: job_id={}, target={}".format(job_id, target))
-            path = '{}/{}'.format(node, target)
-            target_value, _ = self.zk.get(path)
-            target_value = json.loads(target_value.decode())
-            """
-            target_value = {
-                "status" = 0,
-                "current_task" = "offline"，
-                "next_task" = "stop_service",
-            }
-            """
-            target_status = target_value['status']
-            target_running_task = target_value['current_task']
-            # 处理running的target
-            if target_status == TargetStatus.running.value:
-                self.handle_running_task(job_id, target, target_running_task)
-            elif target_status == TargetStatus.success.value:
-                target_success_count += 1
-            elif target_status == TargetStatus.fail.value:
-                target_fail_count += 1
-            elif target_status == TargetStatus.init.value:
-                target_init_count += 1
-            elif target_status == TargetStatus.running.value:
-                target_running_count += 1
-            else:
-                logger.error("handle running target: unexpected target status, target_status={}".format(target_status))
-
+            target_lock_node = '{}/{}/lock'.format(node, target)
+            self.zk.ensure_path(target_lock_node)
+            target_lock = Lock(self.zk, target_lock_node)
+            try:
+                if target_lock.acquire(timeout=1):
+                    logger.info("Target Lock acquire: job_id={}, target={}".format(job_id, target))
+                    logger.info("handle_running_target start: job_id={}, target={}".format(job_id, target))
+                    path = '{}/{}'.format(node, target)
+                    target_value, _ = self.zk.get(path)
+                    target_value = json.loads(target_value.decode())
+                    """
+                    target_value = {
+                        "status" = 0,
+                        "current_task" = "offline"，
+                        "next_task" = "stop_service",
+                    }
+                    """
+                    target_status = target_value['status']
+                    target_running_task = target_value['current_task']
+                    # 处理running的target
+                    if target_status == TargetStatus.running.value:
+                        self.handle_running_task(job_id, target, target_running_task)
+                    elif target_status == TargetStatus.success.value:
+                        target_success_count += 1
+                    elif target_status == TargetStatus.fail.value:
+                        target_fail_count += 1
+                    elif target_status == TargetStatus.init.value:
+                        target_init_count += 1
+                    elif target_status == TargetStatus.running.value:
+                        target_running_count += 1
+                    else:
+                        logger.error("handle running target: unexpected target status, target_status={}".format(target_status))
+            except LockTimeout:
+                logger.error('Target lock timeout: job_id={}, target={}'.format(job_id, target))
+            finally:
+                if target_lock.release():
+                    logger.info('Target lock release: success, job_id={}, target={}'.format(job_id, target))
+                else:
+                    logger.error('Target lock release: fail, job_id={}, target={}'.format(job_id, target))
+        # job汇总信息
         logger.info("job targets status detail: jobid={}, targets_count={}, target_init_count={}, target_running_count={}, target_success_count={}, target_fail_count={}".format(job_id, len(targets), target_init_count, target_running_count, target_success_count, target_fail_count))
-
         if (target_success_count + target_fail_count) == len(targets):
             logger.info("job is finished: jobid={}, targets_count={}, target_success_count={}, target_fail_count={}".format(job_id, len(targets), target_success_count, target_fail_count))
             # job 终结点
