@@ -4,6 +4,7 @@ def record_target_status(jobid, target, status):
 import requests
 from base import CallbackLevel, CallbackResponseStatus
 from base.configuration import LOG_SETTINGS
+from base import TargetStatus
 import logging.config
 
 
@@ -30,9 +31,12 @@ class PortalCallback(object):
             context = res.json()
             if context['status'] == CallbackResponseStatus.success.value:
                 logger.info("post callback: response context status success, context={}".format(context))
+                # data_code = context.get("data", 0)
+                # if data_code == 100:
+                #     do something with data_code == 100
                 return True
             else:
-                logger.error("post callback: response context status fail, context={}".format(context))
+                logger.error("post callback: response context status fail, context={}, payload={}".format(context, payload))
                 return False
         else:
             logger.error("post callback: response status fail, response={}".format(res))
@@ -68,11 +72,43 @@ class PortalCallback(object):
     def _task_callback(self, callback_info):
         logger.info("task callback, callback_info={}".format(callback_info))
         task_callback_url = self._get_target_callback()
+        # 'messages': [
+        # {
+        #     'message':
+        #         {
+        #           'failed': ['1489552508,1. DOWNLOAD VERSION,failed'],
+        #           'unreachable': [],
+        #           'success': ['1489552508,0 MAKE DIR,success']
+        #         },
+        #     'status': 2,
+        #     'host': '10.99.70.75'
+        # }
+        # ]
+        messages = callback_info.get("messages", [])
+        callback_messages = []
+        #  这里感觉很不好。。
+        if messages:
+            if isinstance(messages, list):
+                for message in messages:
+                    message_detail = message.get('message', dict())
+                    if isinstance(message_detail, dict):
+                        for msg in message_detail.values():
+                            if msg:
+                                if isinstance(msg, list):
+                                    callback_messages.extend(msg)
+                                elif isinstance(msg, str):
+                                    callback_messages.append(msg)
+                    elif isinstance(message, str):
+                        callback_messages.append(messages)
+            else:
+                logger.error("callback message is not list, messages = {}".format(messages))
+        else:
+            callback_messages = []
         payload = {
             "job_id": callback_info["job_id"],
             "target": callback_info["target"],
             "status": callback_info["status"],
-            "messages": callback_info["messages"]
+            "messages": callback_messages
         }
         if self._post_callback(task_callback_url, payload):
             return True
@@ -101,6 +137,8 @@ class PortalCallback(object):
 
     def _update_job_task(self, target, task_name, status, messages=None):
         self.job_callback_info.setdefault("targets", dict())
+        if target not in self.job_callback_info["targets"]:
+            self._update_job_target(target, TargetStatus.running.value, "")
         target_callback_info = self.job_callback_info["targets"].get(target, dict())
         if target_callback_info:
             target_callback_info.setdefault("tasks", dict())
@@ -116,7 +154,8 @@ class PortalCallback(object):
                 }
             self.job_callback_info["targets"][target][task_name] = task_callback_info
         else:
-            logger.error("update job task failed: target is not exit, job_id={}, target={}, task_id={}".format(self.job_id, target, task_name))
+            logger.error("job callback info: {}".format(self.job_callback_info))
+            logger.error("update job task failed: target is not exist, job_id={}, target={}, task_name={}".format(self.job_id, target, task_name))
 
     def post_callback(self, callback_value):
         callback_level = callback_value["callback_level"]

@@ -51,7 +51,7 @@ class JobsCallback(RequestHandler):
             self.write(json.dumps(res))
             self.finish()
         else:
-            logger.info('Job_ID: {}, Task_id: {}, Job_Step: {}, Job_Status: {}'.format(job_id, task_id, task_name, task_status))
+            logger.info('Job_ID: {}, Task_id: {}, Job_Step: {}, Task_Status: {}'.format(job_id, task_id, task_name, task_status))
             zk = self.application.zk
             if zk.update_callback_by_taskid(job_id, task_id, task_status, task_message):
                 logger.info("update callback by taskid sucess: jobid={}, taskid={}".format(job_id, task_id))
@@ -61,7 +61,8 @@ class JobsCallback(RequestHandler):
                 logger.info('"Host": {}, "status": {}, "message": {}'.format(message['host'], message['status'], message['message']))
             if zk.handler_task(job_id, task_id, task_name, task_message, task_status):
                 logger.info("handler task success after callback")
-                zk.send_signal(job_id)
+                if zk.is_exist_signal(job_id):
+                    zk.send_signal(job_id)
                 res = {"status": JobCallbackResponseStatus.success.value,
                        "message": "callback receive success, and handler task success after callback"}
             else:

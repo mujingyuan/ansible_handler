@@ -38,6 +38,16 @@ class ZkOperation(object):
         data, _ = self.zk.get(node)
         return data['Status']
 
+    def _is_exist(self, node):
+        if self.zk.connected and self.zk.exists(node):
+            if self.zk.exists(node):
+                return True
+            else:
+                return False
+        else:
+            logger.error('zk not connected or node is exists')
+            return False
+
     def _create_node(self, node, value=None):
         if value is None:
             value = ''
@@ -71,20 +81,20 @@ class ZkOperation(object):
             return False
 
     def _delete_node(self, node):
-        tx = self.zk.transaction()
-        tx.delete(node)
-        tx.commit()
         if self.zk.connected:
             if not self.zk.exists(node):
                 return True
             else:
-                tx = self.zk.transaction()
-                tx.delete(node)
-                tx.commit()
+                self.zk.delete(node, recursive=True)
                 return True
         else:
             logger.error('zk not connected')
             return False
+
+    # is exist
+    def is_exist_signal(self, job_id):
+        node = '/{}/signal/{}'.format(self.root, job_id)
+        return self._is_exist(node)
 
     # CREATE
     def create_new_job(self, job_id, job_value=None):
@@ -184,8 +194,37 @@ class ZkOperation(object):
         tx.set_data(node, uuid.uuid4().bytes)
         tx.commit()
 
+    # DELETE
+    def delete_job(self, job_id):
+        node = "{}/jobs/{}".format(self.root, job_id)
+        logger.info("delete job: job_id={}".format(job_id))
+        self._delete_node(node)
+
+    def delete_signal(self, job_id):
+        node = '{}/signal/{}'.format(self.root, job_id)
+        logger.info("delete singal: {}".format(job_id))
+        self._delete_node(node)
+
+    def delete_target(self, job_id, target):
+        target_node = '{}/jobs/{}/targets/{}'.format(self.root, job_id, target)
+        logger.info("delete target: job_id={}, target={}".format(job_id, target))
+        self._delete_node(target_node)
+
+    def delete_task(self, job_id, target, task_id):
+        task_node = '{}/jobs/{}/targets/{}/tasks/{}'.format(self.root, job_id, target, task_id)
+        logger.info("delete task: job_id ={}, target={}, task_id={}".format(job_id, target, task_id))
+        self._delete_node(task_node)
+
 #################################
     # CALLBACK
+    ## exsit CALLBACK
+    def is_exist_callback(self, callback_node):
+        node = "{}/callback/{}".format(self.root, callback_node)
+        if self.zk.exists(node):
+            return True
+        else:
+            return False
+
     ## INIT CALLBACK
     def init_callback_by_jobid(self, job_id):
         node = "{}/callback/{}".format(self.root, job_id)

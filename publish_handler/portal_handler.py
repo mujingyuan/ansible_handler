@@ -20,24 +20,29 @@ class PublishHandler(RequestHandler):
         release_config = body.get('release_config', '')
         job_type = body.get('job_type', '')
         job_info = body.get('job_info', '')
-        targets = body.get('targets', '')
+        targets = body.get('targets', [])
         parameters = body.get('parameters', '')
         callback_url = body.get('callback', '')
-        if job_id == '' or release_config == '' or job_type == '' or job_info == '' or targets == []:
-            self.write('argument is null')
+        if not job_id or not release_config or not job_type or not job_info or not targets or not callback_url:
+            res = {
+                    "status": ResponseStatus.fail.value,
+                    "message": "argument is null"
+                }
+            self.write(json.dumps(res))
             self.finish()
 
         # release config
         environment = release_config.get('environment', '')
         project = release_config.get('project', '')
-        module = release_config.get('module_name', '')
-        extend_key = release_config.get('extend_key')
+        module = release_config.get('module', '')
+        extend_key = release_config.get('extend_key', dict())
 
         # version info
         version = job_info.get('version', '')
         build = job_info.get('build', '')
+        file_list = job_info.get('filelist')
         # targets
-        load_balancing = targets.get('load_balancing')
+        load_balancing = targets.get('load_balancing', [])
         execute_hosts = targets.get('execute_hosts', [])
         # parameters
         parallel = parameters.get('parallel', 1)
@@ -52,6 +57,7 @@ class PublishHandler(RequestHandler):
                     "module": module,
                     "version": version,
                     "build": build,
+                    "file_list": file_list,
                     "load_balancing": load_balancing,
                     "targets": execute_hosts,
                     "extend_key": extend_key,
@@ -96,6 +102,7 @@ class PublishHandler(RequestHandler):
                     logger.info("init callback by jobid success: jobid={}".format(job_id))
                 else:
                     logger.error("init callback by jobid fail: jobid={}".format(job_id))
+                    return False
                 for host in hosts:
                     """
                     {
@@ -161,8 +168,10 @@ class PublishHandler(RequestHandler):
                 return True
             else:
                 logger.error("add task to scheduler fail: job_id={} is created fail".format(job_id))
+                return False
         else:
             logger.error("add task to scheduler fail: job_id={} is exist".format(job_id))
+            return False
 
     def start_job(self, job_id):
         ret = self.application.zk.create_job_signal(job_id)

@@ -28,13 +28,29 @@ class Callback:
         callback_value = self.zkhandler.get_callback_info(callback)
         return callback_value
 
-    def delete(self, callback):
-        self.zkhandler.delete_callback_node(callback)
+    def delete_callback(self, callback):
+        return self.zkhandler.delete_callback_node(callback)
+
+    def delete_job(self, job_id):
+        self.zkhandler.delete_job(job_id)
+        self.zkhandler.delete_signal(job_id)
+
+    def delete_target(self, job_id, target):
+        self.zkhandler.delete_target(job_id, target)
+
+    def delete_task(self, job_id, target, task_id):
+        self.zkhandler.delete_task(job_id, target, task_id)
 
     def run_callback(self, callback):
         callback_value = self.get_callback_value(callback)
         callback_info = callback_value["callback_info"]
         job_id = callback_info["job_id"]
+        if not self.zkhandler.is_exist_callback(job_id):
+            # job 已返回， callback状态还是init or running,删除callback
+            logger.warning('job callback is not exsit')
+            if callback_info["status"] in (TaskStatus.init.value, TaskStatus.running.value):
+                self.delete_callback(callback)
+                return
         if job_id in self.callback_handlers.keys():
             callback_handler = self.callback_handlers.get(job_id)
         else:
@@ -47,16 +63,19 @@ class Callback:
             if callback_level == CallbackLevel.job.value:
                 if callback_status in (JobStatus.success.value, JobStatus.fail.value):
                     logger.info("run callback: job is finished, callback status ={}".format(callback_status))
-                    self.delete(callback)
-                    del self.callback_handlers[job_id]
+                    if self.delete_callback(callback):
+                        self.delete_job(job_id)
+                        del self.callback_handlers[job_id]
+                    else:
+                        logger.error("delete callback failed: callback={}".format(callback))
             elif callback_level == CallbackLevel.target.value:
                 if callback_status in (TargetStatus.success.value, TargetStatus.fail.value):
                     logger.info("run callback: target is finished, callback status ={}".format(callback_status))
-                    self.delete(callback)
+                    self.delete_callback(callback)
             elif callback_level == CallbackLevel.task.value:
                 if callback_status in (TaskStatus.success.value, TaskStatus.fail.value):
                     logger.info("run callback: task is finished, callback status ={}".format(callback_status))
-                    self.delete(callback)
+                    self.delete_callback(callback)
             else:
                 logger.error("wrong callback callback level")
 
@@ -68,9 +87,10 @@ class Callback:
 
     def compensate(self):
         while not self.event.is_set():
+            logger.info("starting compensate")
             for callback in self.zk.get_children('/{}/callback'.format(self.root)):
                 self.run_callback(callback)
-            self.event.wait(120)
+            self.event.wait(180)
 
     def handle_new_callback(self, callbacks):
         for callback in set(callbacks).difference(self.callbacks):

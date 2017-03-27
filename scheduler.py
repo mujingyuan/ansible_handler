@@ -210,6 +210,7 @@ class Scheduler:
         elif task_value['status'] == TaskStatus.fail.value:
             # 任务失败 target失败
             self.set_target_status(job_id, target, TargetStatus.fail.value)
+            self.send_signal(job_id)
         else:
             logger.error("handle running task: unexpected task status")
 
@@ -263,6 +264,7 @@ class Scheduler:
         job_id = job_info['jobid']
         version = job_info['version']
         build = job_info['build']
+        file_list = job_info['file_list']
         extend_key = job_info['extend_key']
         load_balancing_hosts = job_info['load_balancing']
         # 解析target info
@@ -318,6 +320,7 @@ class Scheduler:
             "version_info": {
                     "version": version,
                     "build": build,
+                    "file_list": file_list,
                 },
             "parameters": parameters,
             "callback": callback_url,
@@ -358,7 +361,11 @@ class Scheduler:
             self.job_callback(job_id, JobStatus.running.value)
             DataWatch(self.zk, '{}/signal/{}'.format(self.root, job_id),
                       partial(self.handle_exist_job, job_id=job_id))
-            self.schedule(job_id)
+            if self.zkhandler.is_job_exist(job_id):
+                self.schedule(job_id)
+            else:
+                self.zkhandler.delete_signal(job_id)
+                jobs.remove(job_id)
         self.jobs = jobs
         return not self.event.is_set()
 
@@ -380,9 +387,12 @@ class Scheduler:
         """
         收到signal后，进入job处理逻辑， callback结束，监听退出
         """
+        logger.info("handle exist job: job_id={}".format(job_id))
+        logger.info("{},{},{}".format(data, stat, event))
         if isinstance(event, WatchedEvent) and event.type == 'CHANGED':
-            job_callback_info = self.zkhandler.get_callback_info(job_id)["callback_info"]
-            if job_callback_info:
+            job_callback_value= self.zkhandler.get_callback_info(job_id)
+            if job_callback_value:
+                job_callback_info = job_callback_value.get("callback_info")
                 job_status = job_callback_info["status"]
                 if job_status == JobStatus.success.value:
                     logger.info("job success: job_id={}".format(job_id))
@@ -393,7 +403,10 @@ class Scheduler:
                 self.schedule(job_id)
                 return True
             else:
-                logger.error("job callback is not exist: jobid={}".format(job_id))
+                logger.warning("job callback is not exist: jobid={}".format(job_id))
+                logger.info("delete job and signal")
+                self.zkhandler.delete_job(job_id)
+                self.zkhandler.delete_signal(job_id)
                 return False
         else:
             logger.info("handle exist job: WatchedEvent={}".format(event))

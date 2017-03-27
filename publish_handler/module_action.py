@@ -9,6 +9,7 @@ import os
 from base.ansible_api import ANSRunner
 import logging.config
 import time
+from base import TargetStatus
 from base.resource_config import inventory_data
 from base.configuration import LOG_SETTINGS
 
@@ -37,6 +38,7 @@ class ModuleUpdateHandler(RequestHandler):
         version_info = body.get('version_info', '')
         version = version_info['version']
         build = version_info['build']
+        file_list = version_info['file_list']
         host_list = []
         for host in hosts:
             host_dict = dict()
@@ -51,6 +53,7 @@ class ModuleUpdateHandler(RequestHandler):
                           "module": module,
                           "version": version,
                           "build": build,
+                          "file_list": file_list
                           }
              },
         }
@@ -70,21 +73,32 @@ class ModuleUpdateHandler(RequestHandler):
             extra_vars = {
                              "host": hostlist
                          }
-            playbook_path = os.path.join(self.playbooks_dir, environment, project, module, playbook_name)
-            logger.info('playbook_name:{}'.format(playbook_path))
-            result_data = yield self.run_ansible(resource, extra_vars, playbook_path)
+            result_data = yield self.run_ansible(resource, extra_vars, environment, project, module, playbook_name)
             logger.info("run ansible result data: {}".format(result_data))
             if task_callback_url:
-                if result_data['failed'] and result_data['unreachable']:
-                    status = 2
-                else:
-                    status = 1
+                status = TargetStatus.success.value
                 messages = result_data.get('status', '')
+                for host_status in messages.values():
+                    if host_status['unreachable'] > 0 or host_status['failed'] > 0:
+                        status = TargetStatus.fail.value
+                call_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
                 callback_messages = []
                 for host in messages.keys():
                     callback_message = dict()
                     callback_message['host'] = host
-                    callback_message['message'] = result_data.get('ok')[host]
+                    callback_message['message'] = dict()
+                    callback_message['message']['success'] = []
+                    for msg in result_data.get('ok').get(host, []):
+                        call_msg = "{},{},{},{}".format(call_time, jobname, msg['task'], 'success')
+                        callback_message['message']['success'].append(call_msg)
+                    callback_message['message']['failed'] = []
+                    for msg in result_data.get('failed').get(host, []):
+                        call_msg = "{},{},{},{}".format(call_time, jobname, msg['task'], 'failed')
+                        callback_message['message']['failed'].append(call_msg)
+                    callback_message['message']['unreachable'] = []
+                    for msg in result_data.get('unreachable').get(host, []):
+                        call_msg = "{},{},{},{}".format(call_time, jobname, msg['task'], 'unreachable')
+                        callback_message['message']['unreachable'].append(call_msg)
                     if messages[host]['failed'] > 0 or messages[host]['unreachable'] > 0:
                         callback_message['status'] = 2
                     else:
@@ -127,8 +141,10 @@ class ModuleUpdateHandler(RequestHandler):
                 self.finish()
 
     @run_on_executor
-    def run_ansible(self, resource, extra_vars, playbook_path):
-        ansible_runner = ANSRunner(resource)
+    def run_ansible(self, resource, extra_vars, environment, project, module, playbook_name):
+        playbook_path = os.path.join(self.playbooks_dir, environment, project, module, playbook_name)
+        logger.info('playbook_name:{}'.format(playbook_path))
+        ansible_runner = ANSRunner(resource, environment, project, module)
         ansible_runner.run_playbook(extra_vars=extra_vars,playbook_path=playbook_path)
         result_data = ansible_runner.get_playbook_result()
         return json.loads(result_data)
