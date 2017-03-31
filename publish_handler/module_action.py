@@ -13,7 +13,7 @@ from base import TargetStatus
 from base.resource_config import inventory_data
 from base.configuration import LOG_SETTINGS
 
-publish_base_dir = '/home/admin/publish'
+publish_base_dir = '/home/admin/eju_publish'
 logging.config.dictConfig(LOG_SETTINGS)
 logger = logging.getLogger('module_action')
 
@@ -135,7 +135,8 @@ class ModuleUpdateHandler(RequestHandler):
                 response_data = {
                         "jobid": jobid,
                         "taskid": task_id,
-                        "status": 1
+                        "status": 1,
+                        "message": result_data
                     }
                 self.write(response_data)
                 self.finish()

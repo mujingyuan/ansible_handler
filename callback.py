@@ -78,6 +78,8 @@ class Callback:
                     self.delete_callback(callback)
             else:
                 logger.error("wrong callback callback level")
+        else:
+            logger.error("post callback error: callback_value={}".format(callback_value))
 
     def watch(self):
         callback_path = '{}/callback'.format(self.root)

@@ -5,7 +5,7 @@ import copy
 import uuid
 import logging.config
 from publish_handler.base import PublishTask, TargetPublishTask, PublishJob
-from base.configuration import get_publish_task_config, get_task_id_prefix, config_dict, LOG_SETTINGS
+from base.configuration import get_task_id_prefix, config_dict, LOG_SETTINGS
 from base import TargetStatus, TaskStatus, ResponseStatus
 
 logging.config.dictConfig(LOG_SETTINGS)
@@ -63,8 +63,9 @@ class PublishHandler(RequestHandler):
                     "extend_key": extend_key,
                     "parallel": parallel,
                     "fail_rate": fail_rate,
+                    # portal callback url
                     "callback": callback_url,
-                    # task callback url 暂时没用
+                    # task callback url
                     "callback_url": config_dict['task_callback_url']
                 }
 
