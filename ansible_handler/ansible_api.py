@@ -19,6 +19,7 @@ logger = logging.getLogger('ansible_resource')
 
 
 class LocalInventory(Inventory):
+
     def __init__(self, env, project):
         self.env = env
         self.project = project

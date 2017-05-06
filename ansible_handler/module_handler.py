@@ -10,8 +10,7 @@ from tornado.concurrent import run_on_executor
 from tornado.gen import coroutine
 from tornado.web import RequestHandler, asynchronous
 
-from ansible_handler.ansible_api import LocalInventory
-from ansible_handler.ansible_api import ANSRunner
+from ansible_handler.ansible_api import LocalInventory, ANSRunner
 from base import TargetStatus
 from base.configuration import LOG_SETTINGS, common_config_dict
 
@@ -55,16 +54,29 @@ class ModuleHandler(RequestHandler):
                 hostnames = local_inventory.host_list_by_group_module(group, module)
             except KeyError:
                 logger.error("using local inventory, but group is null")
-                self.write("using local inventory, but group is null")
+                response_data = {
+                        "status": 2,
+                        "message": "using local inventory, but group is null"
+                    }
+                self.write(response_data)
                 self.finish()
             except FileNotFoundError:
                 logger.error("using local inventory, but inventory file not found")
-                self.write("using local inventory, but inventory file not found")
+                response_data = {
+                        "status": 2,
+                        "message": "using local inventory, but inventory file not found"
+                    }
+                self.write(response_data)
                 self.finish()
         if not hostnames:
             logger.error("hostnames is null")
-            self.write("hostnames is null")
+            response_data = {
+                        "status": 2,
+                        "message": "hostnames is null"
+                    }
+            self.write(response_data)
             self.finish()
+        logger.info("####")
         version_info = body.get('version_info', '')
         version = version_info['version']
         build = version_info['build']
@@ -83,6 +95,7 @@ class ModuleHandler(RequestHandler):
                           }
              },
         }
+        logger.info(resource)
         jobid = body.get('jobid', '')
         task_id = body.get('taskid', '')
         jobname = body.get('jobname', '')
@@ -90,21 +103,21 @@ class ModuleHandler(RequestHandler):
         playbook_name = jobname + '.yml'
         if not environment or not project or not module or not hostnames or not resource:
             message = "argument is null"
+            logger.error(message)
             response_data = {
                         "status": 2,
                         "message": message
                     }
             self.write(response_data)
-            logger.error('argument is null')
             self.finish()
         elif environment != common_config_dict["env"]:
             message = "environment is wrong"
+            logger.error(message)
             response_data = {
                         "status": 2,
                         "message": message
                     }
             self.write(response_data)
-            logger.error("environment is wrong")
             self.finish()
         else:
             host_list = []
@@ -115,6 +128,7 @@ class ModuleHandler(RequestHandler):
                              "host": host_list,
                              "ansible_resource_dir": self.playbooks_dir
                          }
+            logger.info(extra_vars)
             result_data = yield self.run_ansible(resource, extra_vars, environment, project, module, playbook_name)
             logger.info("run ansible_resource result data: {}".format(result_data))
             if task_callback_url:
