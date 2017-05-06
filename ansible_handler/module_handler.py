@@ -20,6 +20,7 @@ logger = logging.getLogger('module_action')
 
 class ModuleHandler(RequestHandler):
     executor = ThreadPoolExecutor(cpu_count())
+    ansible_resource_dir = common_config_dict["ansible_resource_dir"]
     playbooks_dir = common_config_dict["playbook_base"]
 
     @asynchronous
@@ -126,7 +127,7 @@ class ModuleHandler(RequestHandler):
             # host字段用于playbook
             extra_vars = {
                              "host": host_list,
-                             "ansible_resource_dir": self.playbooks_dir
+                             "ansible_resource_dir": self.ansible_resource_dir
                          }
             logger.info(extra_vars)
             result_data = yield self.run_ansible(resource, extra_vars, environment, project, module, playbook_name)
