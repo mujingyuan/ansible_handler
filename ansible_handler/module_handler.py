@@ -48,8 +48,13 @@ class ModuleHandler(RequestHandler):
         hostnames = body.get('hostnames', [])
         parameters = body.get('parameters')
         extend_key = body.get("extend_key", dict())
-        if parameters["is_local_inventory"]:
-            local_inventory = LocalInventory(environment, project)
+        is_local_inventory = parameters.get("is_local_inventory", False)
+        if is_local_inventory:
+            logger.info("###$$$")
+            try:
+                local_inventory = LocalInventory(environment, project)
+            except Exception as e:
+                logger.error(e)
             try:
                 group = extend_key["group"]
                 hostnames = local_inventory.host_list_by_group_module(group, module)
@@ -77,7 +82,6 @@ class ModuleHandler(RequestHandler):
                     }
             self.write(response_data)
             self.finish()
-        logger.info("####")
         version_info = body.get('version_info', '')
         version = version_info['version']
         build = version_info['build']

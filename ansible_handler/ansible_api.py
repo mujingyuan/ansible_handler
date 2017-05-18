@@ -23,11 +23,14 @@ class LocalInventory(Inventory):
     def __init__(self, env, project):
         self.env = env
         self.project = project
+        logger.info(common_config_dict)
         inventory_base = common_config_dict["inventory_base"]
         inventory_file = "{}/{}/{}".format(inventory_base, env, project)
+        logger.info(inventory_file)
         if os.path.exists(inventory_file):
             self.inventory = Inventory(loader=DataLoader(), variable_manager=VariableManager(), host_list=inventory_file)
         else:
+            logger.error("file not found: {}".format(inventory_file))
             raise FileNotFoundError
 
     @staticmethod
