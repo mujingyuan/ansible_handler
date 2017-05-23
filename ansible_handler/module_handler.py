@@ -74,6 +74,8 @@ class ModuleHandler(RequestHandler):
                     }
                 self.write(response_data)
                 self.finish()
+            except Exception :
+                logger.exception("Exception Logged")
         if not hostnames:
             logger.error("hostnames is null")
             response_data = {

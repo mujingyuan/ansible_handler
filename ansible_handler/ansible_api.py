@@ -35,7 +35,13 @@ class LocalInventory(Inventory):
 
     @staticmethod
     def get_host_group(group, module):
-        return "G{}_{}".format(group, module)
+        if group == "all":
+            return "{}".format(module)
+        elif isinstance(int(group), int):
+            return "G{}_{}".format(group, module)
+        else:
+            logger.error("group is wrong type")
+            raise TypeError
 
     def _host_list(self, pattern):
         return self.inventory.list_hosts(pattern)
